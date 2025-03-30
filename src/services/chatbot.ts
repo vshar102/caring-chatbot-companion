@@ -41,9 +41,12 @@ export class ChatbotService {
     
     // Check for greetings
     if (this.isGreeting(lowerMessage)) {
-      return this.createResponse(
-        this.getRandomItem(this.greetings) + " " + this.getRandomItem(this.followUps)
-      );
+      return {
+        message: this.createResponse(
+          this.getRandomItem(this.greetings) + " " + this.getRandomItem(this.followUps)
+        ),
+        needsInfo: false
+      };
     }
     
     // Check for symptom descriptions
