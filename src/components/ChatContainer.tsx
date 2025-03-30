@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef } from 'react';
-import { Message } from '../types';
 import ChatBubble from './ChatBubble';
+import { Message } from '@/types';
 
 interface ChatContainerProps {
   messages: Message[];
@@ -9,37 +9,37 @@ interface ChatContainerProps {
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({ messages, isTyping }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
   
   return (
-    <div 
-      ref={containerRef}
-      className="flex-1 overflow-y-auto p-4 flex flex-col"
-      style={{ scrollBehavior: 'smooth' }}
-    >
+    <div className="flex-1 overflow-y-auto px-4 py-6">
       {messages.map((message, index) => (
         <ChatBubble 
           key={message.id} 
           message={message} 
-          isLatest={index === messages.length - 1} 
+          isLastMessage={index === messages.length - 1} 
         />
       ))}
       
       {isTyping && (
-        <div className="chat-bubble chat-bubble-bot animate-fade-in">
-          <div className="flex space-x-2">
-            <div className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></div>
-            <div className="w-2 h-2 rounded-full bg-gray-400 animate-pulse delay-100"></div>
-            <div className="w-2 h-2 rounded-full bg-gray-400 animate-pulse delay-200"></div>
+        <div className="flex gap-3 mb-4">
+          <div className="h-8 w-8 bg-healthcare-primary text-white flex items-center justify-center rounded-full">
+            <span className="text-xs font-medium">AI</span>
+          </div>
+          
+          <div className="bg-muted px-4 py-2.5 rounded-lg inline-flex gap-1 items-center">
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-0"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
           </div>
         </div>
       )}
+      
+      <div ref={messagesEndRef} />
     </div>
   );
 };

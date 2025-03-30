@@ -1,6 +1,6 @@
-
 import { Message } from "../types";
 import { generateMessageId } from "../utils/conversation";
+import { healthcareProviderService } from "./healthcareProviders";
 
 interface ChatbotResponse {
   message: Message;
@@ -196,6 +196,36 @@ export class ChatbotService {
     return keyConfig.permissions.includes(permission);
   }
   
+  // Check if message is asking for nearby healthcare providers
+  private isAskingForNearbyProviders(message: string): boolean {
+    const providerKeywords = ['near', 'nearby', 'closest', 'nearest', 'around', 'close to'];
+    const locationWords = ['hospital', 'clinic', 'doctor', 'physician', 'healthcare', 'medical', 'provider', 'facility'];
+    
+    // Check if the message contains both location-related words and healthcare facility words
+    const hasLocationWord = providerKeywords.some(word => message.includes(word));
+    const hasHealthcareWord = locationWords.some(word => message.includes(word));
+    
+    // Check for address patterns (streets, cities, zip codes)
+    const hasAddressPattern = /\b\d+\s+\w+\s+(st|street|ave|avenue|blvd|boulevard|rd|road|way|drive|dr|lane|ln)\b/i.test(message);
+    const hasZipCode = /\b\d{5}(-\d{4})?\b/.test(message);
+    
+    return (hasLocationWord && hasHealthcareWord) || 
+           (message.includes('address') && hasHealthcareWord) || 
+           (hasAddressPattern || hasZipCode) && message.includes('provider');
+  }
+  
+  // Extract location from message
+  private extractLocation(message: string): string | null {
+    // Simple extraction of potential address
+    const addressMatch = message.match(/\d+\s+\w+\s+(st|street|ave|avenue|blvd|boulevard|rd|road|way|drive|dr|lane|ln)[^,]*(,\s*[^,]+){1,2}/i);
+    
+    if (addressMatch) {
+      return addressMatch[0];
+    }
+    
+    return null;
+  }
+  
   // Process user message and generate response
   async processMessage(userMessage: string, apiKey?: string): Promise<ChatbotResponse> {
     // API key validation if provided
@@ -213,7 +243,36 @@ export class ChatbotService {
     
     const lowerMessage = userMessage.toLowerCase();
     
-    // Execute the perception-decision-action loop
+    // Check if the user is asking for nearby healthcare providers
+    if (this.isAskingForNearbyProviders(lowerMessage)) {
+      try {
+        const location = this.extractLocation(userMessage) || userMessage;
+        const providers = await healthcareProviderService.findNearbyProviders(location);
+        
+        const response: Message = {
+          id: generateMessageId(),
+          content: "Here are some healthcare providers near your location:",
+          role: "assistant",
+          timestamp: new Date(),
+          healthcareProviders: providers
+        };
+        
+        return {
+          message: response,
+          needsInfo: false
+        };
+      } catch (error) {
+        console.error("Error finding healthcare providers:", error);
+        return {
+          message: this.createResponse(
+            "I'm sorry, I couldn't find healthcare providers at that location. Please verify the address and try again, or try a different location."
+          ),
+          needsInfo: false
+        };
+      }
+    }
+    
+    // Execute the perception-decision-action loop for other types of messages
     return this.agentDecisionLoop(lowerMessage);
   }
   
