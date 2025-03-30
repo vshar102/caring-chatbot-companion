@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Message } from '@/types';
@@ -15,7 +14,7 @@ import ChatInput from '@/components/ChatInput';
 import SettingsPanel from '@/components/SettingsPanel';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button'; // Added missing Button import
+import { Button } from '@/components/ui/button';
 import { Heart } from 'lucide-react';
 
 const Index = () => {
@@ -38,13 +37,10 @@ const Index = () => {
     severityCollected: false
   });
   
-  // Initialize conversation
   useEffect(() => {
-    // Generate a new conversation ID
     const newConversationId = generateConversationId();
     setConversationId(newConversationId);
     
-    // Initial message
     const initialMessage: Message = {
       id: generateMessageId(),
       content: "Hello! I'm your healthcare assistant. How can I help you today?",
@@ -54,45 +50,36 @@ const Index = () => {
     
     setMessages([initialMessage]);
     
-    // Store the initial conversation
     saveConversation(newConversationId, [initialMessage]);
     
-    // Check if speech recognition is supported
     setSttSupported(sttService.isSupported());
     
-    // Set up speech-to-text callbacks
     sttService.onStatusChange(setSttStatus);
     sttService.onResult(handleSpeechResult);
     
-    // Check for saved API keys
     const savedApiKey = localStorage.getItem('elevenLabsApiKey') || '';
     if (savedApiKey) {
       setApiKey(savedApiKey);
       ttsService.setApiKey(savedApiKey);
     }
     
-    // Check for saved voice ID
     const savedVoiceId = localStorage.getItem('elevenLabsVoiceId') || voiceId;
     if (savedVoiceId) {
       setVoiceId(savedVoiceId);
       ttsService.setVoiceId(savedVoiceId);
     }
     
-    // Check for saved chatbot API key
     const savedChatbotApiKey = localStorage.getItem('healthcareChatbotApiKey') || '';
     if (savedChatbotApiKey) {
       setChatbotApiKey(savedChatbotApiKey);
     }
     
-    // Speak the initial greeting if API key is available
     if (savedApiKey) {
       ttsService.speak(initialMessage.content);
     }
   }, []);
   
-  // Handle user message submission
   const handleSubmit = async (content: string) => {
-    // Create new user message
     const userMessage: Message = {
       id: generateMessageId(),
       content,
@@ -100,74 +87,62 @@ const Index = () => {
       timestamp: new Date()
     };
     
-    // Update messages state
-    setMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     
-    // Save to conversation storage
-    saveConversation(conversationId, [...messages, userMessage]);
+    saveConversation(conversationId, updatedMessages);
     
-    // Show typing indicator
     setIsTyping(true);
     
-    // Process message with chatbot service
-    setTimeout(async () => {
-      try {
-        const response = await chatbotService.processMessage(content, chatbotApiKey);
-        
-        // Update conversation state based on response
-        if (response.infoType === 'symptoms') {
-          setConversationState(prev => ({ ...prev, symptomCollected: true }));
-        } else if (response.infoType === 'duration') {
-          setConversationState(prev => ({ ...prev, durationCollected: true }));
-        } else if (response.infoType === 'severity') {
-          setConversationState(prev => ({ ...prev, severityCollected: true }));
-        }
-        
-        setMessages(prev => [...prev, response.message]);
-        saveConversation(conversationId, [...messages, userMessage, response.message]);
-        
-        // Speak response if API key is available
-        if (apiKey) {
-          ttsService.speak(response.message.content);
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
-        toast({
-          title: "Error",
-          description: "Failed to process your message. Please try again.",
-          variant: "destructive"
-        });
-      } finally {
-        setIsTyping(false);
+    try {
+      const response = await chatbotService.processMessage(content, chatbotApiKey);
+      
+      if (response.infoType === 'symptoms') {
+        setConversationState(prev => ({ ...prev, symptomCollected: true }));
+      } else if (response.infoType === 'duration') {
+        setConversationState(prev => ({ ...prev, durationCollected: true }));
+      } else if (response.infoType === 'severity') {
+        setConversationState(prev => ({ ...prev, severityCollected: true }));
       }
-    }, 1000); // Simulate thinking time
+      
+      const newMessages = [...updatedMessages, response.message];
+      setMessages(newMessages);
+      saveConversation(conversationId, newMessages);
+      
+      if (apiKey) {
+        ttsService.speak(response.message.content);
+      }
+    } catch (error) {
+      console.error('Error processing message:', error);
+      toast({
+        title: "Error",
+        description: "Failed to process your message. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsTyping(false);
+    }
   };
   
-  // Handle speech recognition result
   const handleSpeechResult = (text: string) => {
     if (text.trim()) {
       handleSubmit(text);
     }
   };
   
-  // Start speech recognition
   const handleStartListening = () => {
     sttService.start();
   };
   
-  // Stop speech recognition
   const handleStopListening = () => {
     sttService.stop();
   };
   
-  // Save settings
   const handleSaveSettings = (newApiKey: string, newVoiceId: string) => {
-    // Save voice API key
     setApiKey(newApiKey);
     localStorage.setItem('elevenLabsApiKey', newApiKey);
     ttsService.setApiKey(newApiKey);
     
-    // Save voice ID
     setVoiceId(newVoiceId);
     localStorage.setItem('elevenLabsVoiceId', newVoiceId);
     ttsService.setVoiceId(newVoiceId);
@@ -178,23 +153,18 @@ const Index = () => {
     });
   };
   
-  // Reset conversation
   const handleResetConversation = () => {
-    // Generate a new conversation ID
     const newConversationId = generateConversationId();
     setConversationId(newConversationId);
     
-    // Reset conversation state
     setConversationState({
       symptomCollected: false,
       durationCollected: false,
       severityCollected: false
     });
     
-    // Reset chatbot service state
     chatbotService.resetConversation();
     
-    // Initial message
     const initialMessage: Message = {
       id: generateMessageId(),
       content: "Hello! I'm your healthcare assistant. How can I help you today?",
@@ -204,10 +174,8 @@ const Index = () => {
     
     setMessages([initialMessage]);
     
-    // Store the initial conversation
     saveConversation(newConversationId, [initialMessage]);
     
-    // Speak the initial greeting if API key is available
     if (apiKey) {
       ttsService.speak(initialMessage.content);
     }

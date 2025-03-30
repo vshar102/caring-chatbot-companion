@@ -1,3 +1,4 @@
+
 import { Message } from "../types";
 import { generateMessageId } from "../utils/conversation";
 
@@ -41,7 +42,8 @@ export class ChatbotService {
     previousTopics: [] as string[],
     preferredResponseStyle: "friendly",
     urgencyLevel: "normal",
-    lastInteractionTimestamp: new Date()
+    lastInteractionTimestamp: new Date(),
+    hasGreeted: false // Track if we've already greeted the user
   };
   
   // Information tracking for conversation context
@@ -230,7 +232,11 @@ export class ChatbotService {
   
   // Identify user intent from message
   private identifyIntent(message: string): string {
-    if (this.isGreeting(message)) return "greeting";
+    if (this.isGreeting(message) && !this.conversationContext.hasGreeted) {
+      this.conversationContext.hasGreeted = true;
+      return "greeting";
+    }
+    
     if (this.containsSymptoms(message)) return "symptom_description";
     if (this.isDurationInfo(message)) return "duration_info";
     if (this.containsNumberRating(message)) return "severity_rating";
@@ -257,6 +263,10 @@ export class ChatbotService {
     if (this.isDurationInfo(message)) {
       entities.duration = message;
       this.collectedInfo.duration.value = message;
+      // Mark duration as collected if it includes time information
+      if (this.hasTimeReference(message)) {
+        this.collectedInfo.duration.collected = true;
+      }
     }
     
     // Extract severity information if present
@@ -279,6 +289,12 @@ export class ChatbotService {
     
     return entities;
   }
+
+  // Check if message contains time references
+  private hasTimeReference(message: string): boolean {
+    const timeWords = ['day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years', 'hour', 'hours', 'minute', 'minutes', 'since', 'ago'];
+    return timeWords.some(word => message.includes(word));
+  }
   
   // Convert number words to actual numbers
   private normalizeNumberWord(word: string): number {
@@ -295,10 +311,13 @@ export class ChatbotService {
     // Update collected info based on intent
     if (intent === "symptom_description") {
       this.collectedInfo.symptoms.collected = true;
+      this.conversationContext.currentGoal = "collect_duration";
     } else if (intent === "duration_info") {
       this.collectedInfo.duration.collected = true;
+      this.conversationContext.currentGoal = "collect_severity";
     } else if (intent === "severity_rating") {
       this.collectedInfo.severity.collected = true;
+      this.conversationContext.currentGoal = "provide_guidance";
     } else if (intent === "medication_info") {
       this.collectedInfo.medications.collected = true;
     } else if (intent === "allergy_info") {
@@ -307,18 +326,28 @@ export class ChatbotService {
       this.collectedInfo.history.collected = true;
     }
     
-    // Check if we need to collect critical information
-    if (!this.collectedInfo.symptoms.collected) {
+    // Use conversation context to guide the flow
+    if (this.conversationContext.currentGoal === "initial_greeting" || intent === "greeting") {
+      this.conversationContext.currentGoal = "collect_symptoms";
       return "ask_symptoms";
     }
     
-    if (this.collectedInfo.symptoms.collected && !this.collectedInfo.duration.collected) {
+    // Check if we need to collect critical information
+    if (!this.collectedInfo.symptoms.collected && this.conversationContext.currentGoal === "collect_symptoms") {
+      return "ask_symptoms";
+    }
+    
+    if (this.collectedInfo.symptoms.collected && !this.collectedInfo.duration.collected && 
+        (this.conversationContext.currentGoal === "collect_symptoms" || this.conversationContext.currentGoal === "collect_duration")) {
+      this.conversationContext.currentGoal = "collect_duration";
       return "ask_duration";
     }
     
     if (this.collectedInfo.symptoms.collected && 
         this.collectedInfo.duration.collected && 
-        !this.collectedInfo.severity.collected) {
+        !this.collectedInfo.severity.collected && 
+        (this.conversationContext.currentGoal === "collect_duration" || this.conversationContext.currentGoal === "collect_severity")) {
+      this.conversationContext.currentGoal = "collect_severity";
       return "ask_severity";
     }
     
@@ -326,6 +355,8 @@ export class ChatbotService {
     if (this.collectedInfo.symptoms.collected && 
         this.collectedInfo.duration.collected && 
         this.collectedInfo.severity.collected) {
+      
+      this.conversationContext.currentGoal = "provide_guidance";
       
       // Check if the user is explicitly asking for next steps
       if (intent === "next_steps_request") {
@@ -345,7 +376,11 @@ export class ChatbotService {
     switch (action) {
       case "ask_symptoms":
         return {
-          message: this.createResponse(this.infoPrompts.symptoms),
+          message: this.createResponse(
+            this.collectedInfo.symptoms.collected ? 
+            "Thank you for sharing that. Could you tell me more about your symptoms?" : 
+            this.infoPrompts.symptoms
+          ),
           needsInfo: true,
           infoType: "symptoms"
         };
@@ -451,32 +486,63 @@ Would you like me to help you find healthcare providers in your area, or is ther
       }
         
       case "ask_more_info":
-        return {
-          message: this.createResponse(
-            "Thank you for sharing that information. To help me better understand your situation, could you please tell me more about your symptoms and how long you've been experiencing them?"
-          ),
-          needsInfo: true,
-          infoType: "more_details"
-        };
+        // Check what information we still need
+        if (!this.collectedInfo.symptoms.collected) {
+          return {
+            message: this.createResponse(
+              "Thank you for sharing that information. Could you please tell me more about what specific symptoms you're experiencing?"
+            ),
+            needsInfo: true,
+            infoType: "symptoms"
+          };
+        } else if (!this.collectedInfo.duration.collected) {
+          return {
+            message: this.createResponse(
+              "Thank you for that information. Could you tell me approximately how long you've been experiencing these symptoms?"
+            ),
+            needsInfo: true,
+            infoType: "duration"
+          };
+        } else if (!this.collectedInfo.severity.collected) {
+          return {
+            message: this.createResponse(
+              "Thank you for sharing that. On a scale from 1 to 10, how would you rate the severity of your symptoms?"
+            ),
+            needsInfo: true,
+            infoType: "severity"
+          };
+        } else {
+          // If we somehow got here with all info collected, provide guidance
+          return this.executeAction("provide_guidance", originalMessage);
+        }
         
       default:
         // Handle greeting case
         if (this.isGreeting(originalMessage)) {
           return {
             message: this.createResponse(
-              this.getRandomItem(this.greetings) + " " + this.getRandomItem(this.followUps)
+              this.getRandomItem(this.greetings)
             ),
             needsInfo: false
           };
         }
         
-        // Default response for unhandled cases
-        return {
-          message: this.createResponse(
-            "I appreciate you sharing that information. To better assist you, could you tell me more about any symptoms you're experiencing, their duration, or severity? This will help me provide more personalized guidance."
-          ),
-          needsInfo: false
-        };
+        // Default response for unhandled cases - progress the conversation based on what we know
+        if (this.collectedInfo.symptoms.collected && !this.collectedInfo.duration.collected) {
+          return this.executeAction("ask_duration", originalMessage);
+        } else if (this.collectedInfo.symptoms.collected && this.collectedInfo.duration.collected && !this.collectedInfo.severity.collected) {
+          return this.executeAction("ask_severity", originalMessage);
+        } else if (this.collectedInfo.symptoms.collected && this.collectedInfo.duration.collected && this.collectedInfo.severity.collected) {
+          return this.executeAction("provide_guidance", originalMessage);
+        } else {
+          return {
+            message: this.createResponse(
+              "I appreciate you sharing that information. Could you tell me more about any symptoms you're experiencing?"
+            ),
+            needsInfo: true,
+            infoType: "symptoms"
+          };
+        }
     }
   }
   
@@ -573,7 +639,8 @@ Would you like me to help you find healthcare providers in your area, or is ther
       previousTopics: [],
       preferredResponseStyle: "friendly",
       urgencyLevel: "normal",
-      lastInteractionTimestamp: new Date()
+      lastInteractionTimestamp: new Date(),
+      hasGreeted: false
     };
   }
 }
