@@ -13,7 +13,8 @@ import {
 import ChatContainer from '@/components/ChatContainer';
 import ChatInput from '@/components/ChatInput';
 import SettingsPanel from '@/components/SettingsPanel';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Heart } from 'lucide-react';
 
 const Index = () => {
@@ -25,6 +26,16 @@ const Index = () => {
   const [sttSupported, setSttSupported] = useState(false);
   const [apiKey, setApiKey] = useState<string>('');
   const [voiceId, setVoiceId] = useState<string>("EXAVITQu4vr4xnSDxMaL"); // Sarah voice
+  const [chatbotApiKey, setChatbotApiKey] = useState<string>('');
+  const [conversationState, setConversationState] = useState<{
+    symptomCollected: boolean;
+    durationCollected: boolean;
+    severityCollected: boolean;
+  }>({
+    symptomCollected: false,
+    durationCollected: false,
+    severityCollected: false
+  });
   
   // Initialize conversation
   useEffect(() => {
@@ -52,7 +63,7 @@ const Index = () => {
     sttService.onStatusChange(setSttStatus);
     sttService.onResult(handleSpeechResult);
     
-    // Check for saved API key
+    // Check for saved API keys
     const savedApiKey = localStorage.getItem('elevenLabsApiKey') || '';
     if (savedApiKey) {
       setApiKey(savedApiKey);
@@ -64,6 +75,12 @@ const Index = () => {
     if (savedVoiceId) {
       setVoiceId(savedVoiceId);
       ttsService.setVoiceId(savedVoiceId);
+    }
+    
+    // Check for saved chatbot API key
+    const savedChatbotApiKey = localStorage.getItem('healthcareChatbotApiKey') || '';
+    if (savedChatbotApiKey) {
+      setChatbotApiKey(savedChatbotApiKey);
     }
     
     // Speak the initial greeting if API key is available
@@ -94,7 +111,17 @@ const Index = () => {
     // Process message with chatbot service
     setTimeout(async () => {
       try {
-        const response = await chatbotService.processMessage(content);
+        const response = await chatbotService.processMessage(content, chatbotApiKey);
+        
+        // Update conversation state based on response
+        if (response.infoType === 'symptoms') {
+          setConversationState(prev => ({ ...prev, symptomCollected: true }));
+        } else if (response.infoType === 'duration') {
+          setConversationState(prev => ({ ...prev, durationCollected: true }));
+        } else if (response.infoType === 'severity') {
+          setConversationState(prev => ({ ...prev, severityCollected: true }));
+        }
+        
         setMessages(prev => [...prev, response.message]);
         saveConversation(conversationId, [...messages, userMessage, response.message]);
         
@@ -134,7 +161,7 @@ const Index = () => {
   
   // Save settings
   const handleSaveSettings = (newApiKey: string, newVoiceId: string) => {
-    // Save API key
+    // Save voice API key
     setApiKey(newApiKey);
     localStorage.setItem('elevenLabsApiKey', newApiKey);
     ttsService.setApiKey(newApiKey);
@@ -150,14 +177,64 @@ const Index = () => {
     });
   };
   
+  // Reset conversation
+  const handleResetConversation = () => {
+    // Generate a new conversation ID
+    const newConversationId = generateConversationId();
+    setConversationId(newConversationId);
+    
+    // Reset conversation state
+    setConversationState({
+      symptomCollected: false,
+      durationCollected: false,
+      severityCollected: false
+    });
+    
+    // Reset chatbot service state
+    chatbotService.resetConversation();
+    
+    // Initial message
+    const initialMessage: Message = {
+      id: generateMessageId(),
+      content: "Hello! I'm your healthcare assistant. How can I help you today?",
+      role: 'assistant',
+      timestamp: new Date()
+    };
+    
+    setMessages([initialMessage]);
+    
+    // Store the initial conversation
+    saveConversation(newConversationId, [initialMessage]);
+    
+    // Speak the initial greeting if API key is available
+    if (apiKey) {
+      ttsService.speak(initialMessage.content);
+    }
+    
+    toast({
+      title: "Conversation Reset",
+      description: "Started a new healthcare conversation."
+    });
+  };
+  
   return (
     <div className="flex justify-center items-center min-h-screen bg-healthcare-light p-4">
       <Card className="w-full max-w-2xl h-[80vh] flex flex-col">
         <CardHeader className="bg-healthcare-primary text-white rounded-t-lg">
-          <CardTitle className="flex items-center justify-center">
-            <Heart className="mr-2 h-6 w-6 animate-pulse-slow" />
-            Healthcare Assistant
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center justify-center">
+              <Heart className="mr-2 h-6 w-6 animate-pulse-slow" />
+              Healthcare Assistant
+            </CardTitle>
+            <div className="flex space-x-2">
+              <Badge variant="outline" className="bg-white/20 text-white hover:bg-white/30">
+                Agentic AI
+              </Badge>
+              <Badge variant="outline" className="bg-white/20 text-white hover:bg-white/30">
+                v2.0
+              </Badge>
+            </div>
+          </div>
         </CardHeader>
         
         <CardContent className="p-0 flex-1 flex flex-col">
@@ -171,6 +248,35 @@ const Index = () => {
             sttSupported={sttSupported}
           />
         </CardContent>
+        
+        <CardFooter className="justify-between border-t p-3">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleResetConversation}
+            className="text-sm text-muted-foreground hover:text-healthcare-primary"
+          >
+            Start New Conversation
+          </Button>
+          
+          <div className="text-xs text-muted-foreground">
+            {conversationState.symptomCollected && (
+              <Badge variant="outline" className="mr-1 bg-green-50 text-green-700 border-green-200">
+                Symptoms
+              </Badge>
+            )}
+            {conversationState.durationCollected && (
+              <Badge variant="outline" className="mr-1 bg-blue-50 text-blue-700 border-blue-200">
+                Duration
+              </Badge>
+            )}
+            {conversationState.severityCollected && (
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                Severity
+              </Badge>
+            )}
+          </div>
+        </CardFooter>
         
         <SettingsPanel 
           onSave={handleSaveSettings}
